@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Builder</title>
+<link rel="stylesheet" href="/theme.css">
+<style>
+body{padding:max(12px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+main{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+header{display:flex;justify-content:space-between;align-items:center;color:var(--text-muted);font-size:14px}
+header b{color:var(--text);font-size:18px}
+h2{margin:0;font-size:22px;text-wrap:balance}
+.label{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}
+.list{display:flex;flex-direction:column;gap:10px}
+.item{display:flex;flex-direction:column;gap:3px;text-align:left;background:var(--surface-0);border:1px solid var(--surface-1);border-radius:12px;padding:12px 14px;color:var(--text);font:inherit;cursor:pointer;width:100%}
+.item:hover{border-color:var(--accent)}
+.pill{align-self:flex-start;font-size:12px;padding:1px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent-text)}
+.pill.blocked{background:color-mix(in srgb,var(--warning) 18%,transparent);color:var(--warning)}
+.empty{color:var(--text-muted);text-align:center;padding:40px 0}
+.back{background:none;border:0;color:var(--accent-text);font:inherit;padding:0;cursor:pointer;align-self:flex-start}
+pre{background:var(--bg-crust);border:1px solid var(--surface-1);border-radius:var(--radius);padding:10px;font:12px/1.4 var(--font-mono);white-space:pre-wrap;word-break:break-word;max-height:50vh;overflow:auto;margin:0}
+textarea{width:100%;box-sizing:border-box;min-height:80px;background:var(--bg-mantle);color:var(--text);border:1px solid var(--surface-1);border-radius:var(--radius);padding:10px;font:inherit}
+.row{display:flex;gap:10px}
+.btn{flex:1;border:0;border-radius:99px;padding:13px 0;font:600 15px var(--font);cursor:pointer}
+.btn.yes{background:var(--accent);color:var(--on-accent)} .btn.yes:hover{background:var(--accent-hover)}
+.btn.no{background:color-mix(in srgb,var(--danger) 16%,transparent);color:var(--danger)}
+.btn.ghost{background:var(--surface-0);color:var(--text);border:1px solid var(--surface-1)}
+.btn:disabled{opacity:.5}
+.card{position:relative;border:1px solid var(--surface-1);border-radius:14px;overflow:hidden;touch-action:pan-y;user-select:none;transition:transform .2s;background:var(--bg-mantle)}
+.card iframe{display:block;width:100%;height:60vh;border:0;background:#fff;pointer-events:none}
+.card img,.shot img{display:block;width:100%}
+.stamp{position:absolute;top:12px;padding:3px 10px;border-radius:8px;font-weight:700;background:var(--bg-crust)}
+.stamp.y{left:12px;color:var(--success);border:2px solid var(--success)} .stamp.n{right:12px;color:var(--danger);border:2px solid var(--danger)}
+.dots{display:flex;gap:6px;justify-content:center}.dots i{width:8px;height:8px;border-radius:50%;background:var(--surface-1)}.dots i.on{outline:2px solid var(--accent)}
+.dots i.k{background:var(--success)}.dots i.s{background:var(--danger)}
+.shot{border:1px solid var(--surface-1);border-radius:12px;overflow:hidden}
+.comments{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--surface-1);padding-top:12px}
+.c{font-size:14px}.c b{color:var(--accent-text)}
+.toast{position:fixed;left:50%;bottom:max(20px,env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--surface-0);border:1px solid var(--surface-1);padding:10px 16px;border-radius:99px;max-width:90vw}
+@media (prefers-reduced-motion:reduce){.card{transition:none}}
+</style>
+</head>
+<body>
+<main id="app"><p class="empty">Loading…</p></main>
+<div class="toast" id="toast" hidden></div>
+<script>
+const app = document.getElementById('app');
+let data = null, view = null, timer = null;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const owner = () => data?.me.role === 'owner';
+const fileUrl = p => '/files/' + p.split('/').map(encodeURIComponent).join('/');
+
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.hidden = false; clearTimeout(t._h); t._h = setTimeout(() => t.hidden = true, 3500); }
+async function post(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'Something went wrong.');
+  return j;
+}
+async function load() {
+  try {
+    const r = await fetch('/api/inbox'); data = await r.json();
+    if (!r.ok) { app.innerHTML = `<p class="empty">${esc(data.error)}</p>`; return; }
+  } catch { return; }
+  if (!view) list();
+}
+
+function list() {
+  view = null;
+  const card = it => { const i = data.items.indexOf(it); return `<button class="item" onclick="open_(${i})">
+    <span class="pill ${it.status === 'blocked' ? 'blocked' : ''}">${it.type === 'pick' ? `${it.options?.length || 0} designs` : it.type === 'review' ? 'review' : { blocked: 'needs an answer', done: 'finished', idle: 'idle', working: 'working…' }[it.status] || it.status}</span>
+    <b>${esc(it.project ? it.project + ' · ' : '')}${esc(it.title)}</b>
+    <span class="label">${it.type === 'agent' ? esc(it.pane) : it.type === 'pick' ? 'pick what you like' : 'check the real version'}${it.comments.length ? ` · ${it.comments.length} comments` : ''}</span></button>`; };
+  const waiting = data.items.filter(it => it.waiting), rest = data.items.filter(it => !it.waiting);
+  app.innerHTML = `<header><b>Builder</b><span>${esc(data.me.name)} · ${data.me.role}</span></header>
+  <h2>Waiting for you${waiting.length ? ` (${waiting.length})` : ''}</h2>
+  ${waiting.length ? `<div class="list">${waiting.map(card).join('')}</div>` : `<p class="empty">Nothing is waiting on you.</p>`}
+  ${rest.length ? `<p class="label">All sessions</p><div class="list">${rest.map(card).join('')}</div>` : ''}
+  ${data.recent.length ? `<p class="label">Recently answered</p><div class="list">${data.recent.map(r => `<div class="item" style="cursor:default"><b>${esc(r.title)}</b><span class="label">${esc(r.answer.text)}</span></div>`).join('')}</div>` : ''}`;
+}
+function open_(i) {
+  const it = data.items[i]; view = it;
+  if (it.type === 'pick') return pick(it, 0, it.options.map(() => null), it.options.map(() => ''));
+  if (it.type === 'review') return review(it);
+  agent(it);
+}
+const head = (it, right = '') => `<header><button class="back" onclick="list()">← Inbox</button><span>${right}</span></header><h2>${esc(it.title)}</h2>`;
+const commentBox = it => `<div class="comments"><span class="label">Comments</span>
+  ${it.comments.map(c => `<div class="c"><b>${esc(c.by)}</b> ${esc(c.text)}</div>`).join('') || '<span class="c" style="color:var(--text-muted)">None yet.</span>'}
+  <textarea id="cm" placeholder="Add a comment for everyone" aria-label="Comment"></textarea>
+  <button class="btn ghost" onclick="comment('${esc(it.id)}')">Comment</button></div>`;
+async function comment(id) {
+  const text = document.getElementById('cm').value;
+  try { await post('/api/comment', { item: id, text }); toast('Comment added'); view = null; await load(); } catch (e) { toast(e.message); }
+}
+async function answer(body, okMsg) {
+  try { await post('/api/answer', body); toast(okMsg); view = null; await load(); } catch (e) { toast(e.message); }
+}
+
+function agent(it) {
+  app.innerHTML = `${head(it, esc(it.project))}
+  <span class="label">${esc(it.pane)} · ${esc(it.status)}</span>
+  <pre id="tail">${esc(it.tail)}</pre>
+  ${owner() && it.status !== 'working' ? `<label class="label" for="ans">Your message (goes straight into that agent)</label><textarea id="ans"></textarea>
+  <button class="btn yes" onclick="answer({pane:'${esc(it.pane)}',terminal_id:'${esc(it.terminal_id)}',seq:${+it.seq},text:document.getElementById('ans').value},'Sent to ${esc(it.pane)}')">Send</button>` : ''}
+  ${commentBox(it)}`;
+  const t = document.getElementById('tail'); t.scrollTop = t.scrollHeight;
+}
+
+function pick(it, i, verdicts, notes) {
+  const o = it.options[i];
+  const media = o.html ? `<iframe src="${fileUrl(o.html)}" title="${esc(o.label)}" sandbox></iframe>` : o.image ? `<img src="${fileUrl(o.image)}" alt="${esc(o.label)}">` : `<pre>${esc(o.text)}</pre>`;
+  app.innerHTML = `${head(it, `${i + 1} / ${it.options.length}`)}
+  <span class="label">${esc(o.label)}${o.note ? ' · ' + esc(o.note) : ''}</span>
+  <div class="card" id="card"><span class="stamp y" ${verdicts[i] === true ? '' : 'hidden'}>KEEP</span><span class="stamp n" ${verdicts[i] === false ? '' : 'hidden'}>SKIP</span>${media}</div>
+  <div class="dots">${it.options.map((_, j) => `<i class="${j === i ? 'on ' : ''}${verdicts[j] === true ? 'k' : verdicts[j] === false ? 's' : ''}"></i>`).join('')}</div>
+  ${owner() ? `<label class="label" for="nt">What to change in ${esc(o.label)}</label><textarea id="nt">${esc(notes[i])}</textarea>
+  <div class="row"><button class="btn no" id="skip">Skip</button><button class="btn yes" id="keep">Keep</button></div>
+  <p class="label" style="text-align:center;margin:0">swipe right to keep · left to skip</p>` : ''}
+  <div class="row"><button class="btn ghost" id="prev" ${i ? '' : 'disabled'}>← Previous</button><button class="btn ghost" id="next" ${i < it.options.length - 1 ? '' : 'disabled'}>Next →</button></div>
+  ${commentBox(it)}`;
+  const go = j => { if (owner()) notes[i] = document.getElementById('nt').value; pick(it, j, verdicts, notes); };
+  document.getElementById('prev').onclick = () => go(i - 1);
+  document.getElementById('next').onclick = () => go(i + 1);
+  if (!owner()) return;
+  const vote = v => {
+    notes[i] = document.getElementById('nt').value; verdicts[i] = v;
+    const next = verdicts.findIndex(x => x === null);
+    next < 0 ? pickSummary(it, verdicts, notes) : pick(it, next, verdicts, notes);
+  };
+  document.getElementById('skip').onclick = () => vote(false);
+  document.getElementById('keep').onclick = () => vote(true);
+  const c = document.getElementById('card'); let x0 = null, dx = 0;
+  c.onpointerdown = e => { x0 = e.clientX; c.style.transition = 'none'; c.setPointerCapture(e.pointerId); };
+  c.onpointermove = e => { if (x0 == null) return; dx = e.clientX - x0; c.style.transform = `translateX(${dx}px) rotate(${dx / 25}deg)`; };
+  c.onpointerup = c.onpointercancel = () => { c.style.transition = ''; c.style.transform = ''; const v = dx > 90 ? true : dx < -90 ? false : null; x0 = null; dx = 0; if (v !== null) vote(v); };
+}
+function pickSummary(it, verdicts, notes) {
+  const kept = verdicts.filter(Boolean).length;
+  app.innerHTML = `${head(it, 'summary')}
+  <div class="list">${it.options.map((o, j) => `<button class="item" onclick='pick(view, ${j}, ${JSON.stringify(verdicts)}, ${esc(JSON.stringify(notes))})'>
+    <span class="pill" style="${verdicts[j] ? 'background:color-mix(in srgb,var(--success) 18%,transparent);color:var(--success)' : 'background:color-mix(in srgb,var(--danger) 16%,transparent);color:var(--danger)'}">${verdicts[j] ? 'keep' : 'skip'}</span>
+    <b>${esc(o.label)}</b><span class="label">${esc(notes[j]) || 'no comment'}</span></button>`).join('')}</div>
+  <p class="label">${kept > 1 ? 'The agent merges what you kept, using your notes.' : kept ? 'The agent builds this one, using your note.' : 'Nothing kept. The agent makes 3 new designs from your notes.'}</p>
+  <button class="btn yes" id="send">${kept ? 'Send to agent' : 'Ask for new designs'}</button>`;
+  document.getElementById('send').onclick = () => answer({ request: it.id.slice(4), verdicts, notes }, 'Sent to the agent');
+}
+
+function review(it) {
+  app.innerHTML = `${head(it, esc(it.project || ''))}
+  ${it.screenshot ? `<div class="shot"><img src="${fileUrl(it.screenshot)}" alt="Screenshot of ${esc(it.title)}"></div>` : ''}
+  ${it.summary ? `<p>${esc(it.summary)}</p>` : ''}
+  ${/^https?:\/\//.test(it.url || '') ? `<a class="btn ghost" style="text-align:center;text-decoration:none" href="${esc(it.url)}" target="_blank" rel="noopener">Open live ↗</a>` : ''}
+  ${owner() ? `<label class="label" for="why">If you deny: what should change?</label><textarea id="why"></textarea>
+  <div class="row"><button class="btn no" id="deny">Deny</button><button class="btn yes" id="ok">Approve → dev</button></div>` : ''}
+  ${commentBox(it)}`;
+  if (!owner()) return;
+  const id = it.id.slice(4);
+  document.getElementById('ok').onclick = () => answer({ request: id, approve: true }, 'Approved, merging into dev');
+  document.getElementById('deny').onclick = () => {
+    const text = document.getElementById('why').value.trim();
+    if (!text) return toast('Say what should change first.');
+    answer({ request: id, approve: false, text }, 'Sent back to the agent');
+  };
+}
+
+load(); timer = setInterval(load, 5000);
+</script>
+</body>
+</html>

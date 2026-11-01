@@ -1,0 +1,14 @@
+[Unit]
+Description=Builder inbox (tailnet only via tailscale serve)
+
+[Service]
+WorkingDirectory=%h/projects/Builder
+EnvironmentFile=%h/projects/Builder/.env
+Environment=PORT=8740
+Environment=TAILSCALE=/usr/bin/tailscale
+Environment=HERDR=%h/.local/bin/herdr
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

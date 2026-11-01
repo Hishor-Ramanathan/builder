@@ -1,0 +1,5 @@
+data/
+requests/
+.superpowers/
+node_modules/
+.env

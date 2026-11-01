@@ -1,0 +1,45 @@
+/* Hishor theme: dark, royal blue accent.
+   Source: Obsidian vault C:\Obsidian\Hishors_Vault (AnuPpuccin, Catppuccin Mocha, accent #4169e1).
+   Copy this file into the app unchanged; style everything through these variables. */
+
+:root {
+  color-scheme: dark;
+
+  /* accent */
+  --accent: #4169e1;          /* buttons, active markers, focus ring */
+  --accent-hover: #5a7fe8;
+  --accent-text: #8aa4f0;     /* links / blue text on dark (#4169e1 as text is too dark: 3.4:1) */
+  --accent-soft: rgb(65 105 225 / 0.18); /* tags, selected rows */
+  --on-accent: #ffffff;       /* text on --accent (4.9:1) */
+
+  /* backgrounds, darkest to lightest */
+  --bg-crust: #11111b;        /* top bar, deepest layer */
+  --bg-mantle: #181825;       /* sidebar */
+  --bg-base: #1e1e2e;         /* main page */
+  --surface-0: #313244;       /* cards, panels, active nav item */
+  --surface-1: #43465a;       /* borders, inputs' border, secondary buttons */
+
+  /* text */
+  --text: #c6d0f5;
+  --text-muted: #7b819d;      /* hints and labels only, not long text (4.3:1) */
+
+  /* status (Catppuccin Mocha) */
+  --success: #a6e3a1;
+  --warning: #f9e2af;
+  --danger: #f38ba8;
+
+  --radius: 8px;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-base);
+  color: var(--text);
+  font: 16px/1.5 var(--font);
+}
+
+a { color: var(--accent-text); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::selection { background: var(--accent-soft); }
