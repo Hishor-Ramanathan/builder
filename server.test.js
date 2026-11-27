@@ -29,6 +29,7 @@ test('formatAnswer: pick lists every option, review approve goes to dev', () => 
   assert.match(formatAnswer(pick, { verdicts: [true, false, true], notes: ['bigger dates', '', ''] }), /A: keep \(bigger dates\); B: skip; C: keep\. Build/);
   assert.match(formatAnswer(pick, { verdicts: [false, false, false], notes: [] }), /Nothing kept/);
   assert.match(formatAnswer({ kind: 'review', title: 'X' }, { approve: true }), /APPROVED\. Merge into dev \(not main\)/);
+  assert.match(formatAnswer({ kind: 'review', title: 'X', approve: 'upload to kDrive' }, { approve: true }), /APPROVED\. Go ahead: upload to kDrive\./);
 });
 
 test('checkPane refuses stale or busy panes', () => {
@@ -64,5 +65,20 @@ test('viewer can comment; pick request answer is written once', async () => {
   assert.ok(!json.items.some(i => i.type === 'agent'), 'raw pane card hidden while it has a request');
   assert.equal((await call('/api/answer', 'me@x', { request: 'evt', verdicts: [true, false], notes: ['', ''] })).status, 200);
   assert.equal((await call('/api/answer', 'me@x', { request: 'evt', verdicts: [true, false], notes: ['', ''] })).status, 409);
+  assert.equal((await fetch(base + '/files/../server.js', { headers: { 'tailscale-user-login': 'me@x' } })).status, 404);
+});
+
+test('files: videos are served with byte ranges (Safari needs them)', async () => {
+  const dir = path.join(tmp, 'req', 'clip');
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, 'v.mp4'), '0123456789');
+  const get = (range) => fetch(base + '/files/clip/v.mp4', { headers: { 'tailscale-user-login': 'me@x', ...(range && { range }) } });
+  const full = await get();
+  assert.equal(full.status, 200); assert.equal(full.headers.get('content-type'), 'video/mp4'); assert.equal(await full.text(), '0123456789');
+  const part = await get('bytes=2-4');
+  assert.equal(part.status, 206); assert.equal(part.headers.get('content-range'), 'bytes 2-4/10'); assert.equal(await part.text(), '234');
+  assert.equal(await (await get('bytes=7-')).text(), '789');
+  assert.equal(await (await get('bytes=-3')).text(), '789');
+  assert.equal((await get('bytes=20-')).status, 416);
   assert.equal((await fetch(base + '/files/../server.js', { headers: { 'tailscale-user-login': 'me@x' } })).status, 404);
 });

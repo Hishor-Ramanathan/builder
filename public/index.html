@@ -71,12 +71,12 @@ function list() {
   const card = it => { const i = data.items.indexOf(it); return `<button class="item" onclick="open_(${i})">
     <span class="pill ${it.status === 'blocked' ? 'blocked' : ''}">${it.type === 'pick' ? `${it.options?.length || 0} designs` : it.type === 'review' ? 'review' : { blocked: 'needs an answer', done: 'finished', idle: 'idle', working: 'working…' }[it.status] || it.status}</span>
     <b>${esc(it.project ? it.project + ' · ' : '')}${esc(it.title)}</b>
-    <span class="label">${it.type === 'agent' ? esc(it.pane) : it.type === 'pick' ? 'pick what you like' : 'check the real version'}${it.comments.length ? ` · ${it.comments.length} comments` : ''}</span></button>`; };
+    <span class="label">${it.type === 'agent' ? esc(it.pane) : it.type === 'pick' ? 'pick what you like' : esc(it.tldr || 'check the real version')}${it.comments.length ? ` · ${it.comments.length} comments` : ''}</span></button>`; };
   const waiting = data.items.filter(it => it.waiting), rest = data.items.filter(it => !it.waiting);
   app.innerHTML = `<header><b>Builder</b><span>${esc(data.me.name)} · ${data.me.role}</span></header>
   <h2>Waiting for you${waiting.length ? ` (${waiting.length})` : ''}</h2>
   ${waiting.length ? `<div class="list">${waiting.map(card).join('')}</div>` : `<p class="empty">Nothing is waiting on you.</p>`}
-  ${rest.length ? `<p class="label">All sessions</p><div class="list">${rest.map(card).join('')}</div>` : ''}
+  ${rest.length ? `<details><summary class="label">All sessions (${rest.length})</summary><div class="list">${rest.map(card).join('')}</div></details>` : ''}
   ${data.recent.length ? `<p class="label">Recently answered</p><div class="list">${data.recent.map(r => `<div class="item" style="cursor:default"><b>${esc(r.title)}</b><span class="label">${esc(r.answer.text)}</span></div>`).join('')}</div>` : ''}`;
 }
 function open_(i) {
@@ -150,14 +150,16 @@ function pickSummary(it, verdicts, notes) {
 function review(it) {
   app.innerHTML = `${head(it, esc(it.project || ''))}
   ${it.screenshot ? `<div class="shot"><img src="${fileUrl(it.screenshot)}" alt="Screenshot of ${esc(it.title)}"></div>` : ''}
-  ${it.summary ? `<p>${esc(it.summary)}</p>` : ''}
+  ${it.video ? `<div class="shot"><video src="${fileUrl(it.video)}" controls playsinline preload="metadata" style="width:100%;display:block"></video></div>` : ''}
+  ${it.tldr ? `<p style="font-size:1.15em;font-weight:600">${esc(it.tldr)}</p>` : ''}
+  ${it.summary ? (it.tldr ? `<details><summary class="label">Details</summary><p>${esc(it.summary)}</p></details>` : `<p>${esc(it.summary)}</p>`) : ''}
   ${/^https?:\/\//.test(it.url || '') ? `<a class="btn ghost" style="text-align:center;text-decoration:none" href="${esc(it.url)}" target="_blank" rel="noopener">Open live ↗</a>` : ''}
   ${owner() ? `<label class="label" for="why">If you deny: what should change?</label><textarea id="why"></textarea>
-  <div class="row"><button class="btn no" id="deny">Deny</button><button class="btn yes" id="ok">Approve → dev</button></div>` : ''}
+  <div class="row"><button class="btn no" id="deny">Deny</button><button class="btn yes" id="ok">${esc(it.approve ? 'Approve: ' + it.approve : 'Approve → dev')}</button></div>` : ''}
   ${commentBox(it)}`;
   if (!owner()) return;
   const id = it.id.slice(4);
-  document.getElementById('ok').onclick = () => answer({ request: id, approve: true }, 'Approved, merging into dev');
+  document.getElementById('ok').onclick = () => answer({ request: id, approve: true }, it.approve ? 'Approved' : 'Approved, merging into dev');
   document.getElementById('deny').onclick = () => {
     const text = document.getElementById('why').value.trim();
     if (!text) return toast('Say what should change first.');

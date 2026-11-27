@@ -33,8 +33,17 @@ Build in your own worktree, run it, log in, open the right page, screenshot it.
 { "kind": "review", "pane": "w3:p1", "project": "Thamarai", "title": "Event block",
   "created": "2026-11-01T11:00:00Z",
   "screenshot": "event-block/real.png", "url": "http://one:3004/admin/events",
+  "tldr": "Event block: design A with C's big photo.",
   "summary": "Design A with the big photo from C." }
 ```
 
-Approve means: merge into `dev`, never `main`, and clean up the worktree. Hishor releases dev to main himself.
+- `tldr` (required): one line, under ~80 characters, so Hishor knows what he is looking at. Shown big.
+- `summary`: optional detail, folded away behind "Details".
+- `approve`: optional, what you do on approve, e.g. `"upload to kDrive"`. It becomes the button text.
+  Leave it out for code: approve then means merge into `dev`.
+
+For a video (a render, a reel), put `"video": "<id>/file.mp4"` instead of or next to `"screenshot"`:
+it plays in the card, also on iPhone and iPad.
+
+Approve without an `approve` field means: merge into `dev`, never `main`, and clean up the worktree. Hishor releases dev to main himself.
 Deny comes with what to change: fix it and send a new review request (new `<id>`).

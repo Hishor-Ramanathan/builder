@@ -5,6 +5,7 @@ import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
 
 const run = promisify(execFile);
@@ -61,7 +62,7 @@ export function formatAnswer(req, body) {
   }
   if (req.kind === 'review') {
     return body.approve
-      ? `[Builder] ${req.title}: APPROVED. Merge into dev (not main) and clean up the worktree.`
+      ? `[Builder] ${req.title}: APPROVED. ${req.approve ? `Go ahead: ${req.approve}.` : 'Merge into dev (not main) and clean up the worktree.'}`
       : `[Builder] ${req.title}: DENIED. Change this: ${(body.text || '').trim()}. Then send a new review request.`;
   }
   return `[Builder] ${req.title}: ${(body.text || '').trim()}`;
@@ -124,16 +125,24 @@ async function readBody(req) {
   let s = ''; for await (const c of req) { s += c; if (s.length > 1e5) throw new Error('too big'); }
   return JSON.parse(s || '{}');
 }
-const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
-async function serveFile(res, base, rel, sandbox) {
+const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.mp4': 'video/mp4' };
+async function serveFile(res, base, rel, sandbox, range) {
   const p = path.resolve(base, '.' + path.sep + rel);
   if (!p.startsWith(base + path.sep)) return send(res, 404, { error: 'not found' });
-  try {
-    const data = await fs.readFile(p);
-    // agent-made mockups run in an opaque origin so they can't call the API
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(p)] || 'application/octet-stream', ...(sandbox && { 'Content-Security-Policy': 'sandbox' }) });
-    res.end(data);
-  } catch { send(res, 404, { error: 'not found' }); }
+  let size;
+  try { size = (await fs.stat(p)).size; } catch { return send(res, 404, { error: 'not found' }); }
+  // agent-made mockups run in an opaque origin so they can't call the API
+  const head = { 'Content-Type': TYPES[path.extname(p)] || 'application/octet-stream', 'Accept-Ranges': 'bytes', ...(sandbox && { 'Content-Security-Policy': 'sandbox' }) };
+  // byte ranges: Safari (iPhone/iPad) won't play a video without them
+  const m = /^bytes=(\d*)-(\d*)$/.exec(range || '');
+  let start = 0, end = size - 1;
+  if (m && (m[1] || m[2])) {
+    start = m[1] ? +m[1] : Math.max(0, size - +m[2]);
+    end = m[1] && m[2] ? Math.min(+m[2], size - 1) : size - 1;
+    if (start > end) { res.writeHead(416, { 'Content-Range': `bytes */${size}` }); return res.end(); }
+    res.writeHead(206, { ...head, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 });
+  } else res.writeHead(200, { ...head, 'Content-Length': size });
+  createReadStream(p, { start, end }).pipe(res);
 }
 
 export const server = http.createServer(async (req, res) => {
@@ -142,7 +151,7 @@ export const server = http.createServer(async (req, res) => {
     if (!me) return send(res, 401, { error: 'Open Builder through Tailscale.' });
     const url = new URL(req.url, 'http://x');
     if (req.method === 'GET' && url.pathname === '/api/inbox') return send(res, 200, { me, ...await inbox() });
-    if (req.method === 'GET' && url.pathname.startsWith('/files/')) return serveFile(res, REQ_DIR, decodeURIComponent(url.pathname.slice(7)), true);
+    if (req.method === 'GET' && url.pathname.startsWith('/files/')) return serveFile(res, REQ_DIR, decodeURIComponent(url.pathname.slice(7)), true, req.headers.range);
     if (req.method === 'GET') return serveFile(res, path.join(ROOT, 'public'), url.pathname === '/' ? 'index.html' : url.pathname, false);
     if (req.method !== 'POST') return send(res, 405, { error: 'method' });
 
