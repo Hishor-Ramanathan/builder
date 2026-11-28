@@ -1,5 +1,5 @@
 // Builder: one inbox for everything Hishor's agents are waiting on.
-// Sources: herdr agents that are blocked/done, plus structured requests agents drop in requests/*.json.
+// Sources: herdr agents that are blocked, plus structured requests agents drop in requests/*.json.
 // Auth: runs on 127.0.0.1 behind `tailscale serve`, which sets Tailscale-User-Login. OWNER answers; everyone else views + comments.
 import http from 'node:http';
 import { execFile } from 'node:child_process';
@@ -16,7 +16,7 @@ const PORT = +process.env.PORT || 8740;
 const REQ_DIR = process.env.REQ_DIR || path.join(ROOT, 'requests');
 const COMMENTS = path.join(process.env.DATA_DIR || path.join(ROOT, 'data'), 'comments.json');
 const PANE_RE = /^w\d+:p\d+$/;
-const WAITING = new Set(['blocked', 'done']);
+const WAITING = new Set(['blocked']); // 'done' only means the agent finished its turn, not that it needs Hishor
 
 async function herdr(...args) {
   const { stdout } = await run(HERDR, args, { timeout: 10000, maxBuffer: 4 << 20 });
@@ -109,7 +109,7 @@ async function inbox() {
   const [agents, requests, comments] = await Promise.all([listAgents().catch(() => []), loadRequests(), loadComments()]);
   const open = requests.filter(r => !r.answer);
   const panesWithRequest = new Set(open.map(r => r.pane));
-  // every herdr session is listed; blocked/done ones count as waiting on the owner and sort first
+  // every herdr session is listed; blocked ones count as waiting on the owner and sort first
   const sessions = agents.filter(a => !panesWithRequest.has(a.pane_id))
     .sort((a, b) => WAITING.has(b.agent_status) - WAITING.has(a.agent_status));
   const items = [
