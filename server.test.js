@@ -28,8 +28,8 @@ test('formatAnswer: pick lists every option, review approve goes to dev', () => 
   const pick = { kind: 'pick', title: 'Event block', options: [{ label: 'A' }, { label: 'B' }, { label: 'C' }] };
   assert.match(formatAnswer(pick, { verdicts: [true, false, true], notes: ['bigger dates', '', ''] }), /A: keep \(bigger dates\); B: skip; C: keep\. Build/);
   assert.match(formatAnswer(pick, { verdicts: [false, false, false], notes: [] }), /Nothing kept/);
-  assert.match(formatAnswer({ kind: 'review', title: 'X' }, { approve: true }), /APPROVED\. Merge into dev \(not main\)/);
-  assert.match(formatAnswer({ kind: 'review', title: 'X', approve: 'upload to kDrive' }, { approve: true }), /APPROVED\. Go ahead: upload to kDrive\./);
+  assert.equal(formatAnswer({ kind: 'review', id: 'x' }, { approve: true }), '[Builder] review x: APPROVED. Merge into dev (not main) and clean up the worktree.');
+  assert.match(formatAnswer({ kind: 'review', id: 'x', approve: 'upload to kDrive' }, { approve: true, text: 'Logo größer' }), /APPROVED\. Go ahead: upload to kDrive\. \| Notiz: Logo größer$/);
 });
 
 test('checkPane refuses stale or busy panes', () => {
@@ -81,4 +81,29 @@ test('files: videos are served with byte ranges (Safari needs them)', async () =
   assert.equal(await (await get('bytes=-3')).text(), '789');
   assert.equal((await get('bytes=20-')).status, 416);
   assert.equal((await fetch(base + '/files/../server.js', { headers: { 'tailscale-user-login': 'me@x' } })).status, 404);
+});
+
+test('media: picks come back in his order with in/out and notes', async () => {
+  await fs.writeFile(path.join(process.env.REQ_DIR, 'shots.json'), JSON.stringify({ kind: 'media', pane: 'w9:p1', title: 'Shots',
+    items: [{ label: 'V12', video: 'g/V12.mp4' }, { label: 'P61', image: 'g/P61.jpg' }, { label: 'V16', video: 'g/V16.mp4' }] }));
+  const picks = [{ label: 'V12', in: 1, out: 2.64 }, { label: 'P61' }, { label: 'V16', in: 3, out: 1.5, note: 'nur der Jubel' },
+    { label: 'NOPE' }, { label: 'P61' }];
+  const r = await call('/api/answer', 'me@x', { request: 'shots', picks, note: 'Gewinner zuletzt' });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.sent, '[Builder] media shots: 1. V12 1.0–2.6 s | 2. P61 | 3. V16 1.5–3.0 s "nur der Jubel" | Notiz: Gewinner zuletzt');
+  assert.match(await fs.readFile(log, 'utf8'), /pane send-text w9:p1 \[Builder\] media shots: 1\. V12/);
+  const saved = JSON.parse(await fs.readFile(path.join(process.env.REQ_DIR, 'shots.answer.json'), 'utf8'));
+  assert.deepEqual(saved.picks.map(p => [p.label, p.in, p.out]), [['V12', 1, 2.6], ['P61', null, null], ['V16', 1.5, 3]]);
+  assert.equal(formatAnswer({ kind: 'media', id: 'x', items: [] }, {}), '[Builder] media x: nichts gewählt');
+});
+
+test('review: markers come back sorted, as text and JSON', async () => {
+  await fs.writeFile(path.join(process.env.REQ_DIR, 'reel.json'), JSON.stringify({ kind: 'review', pane: 'w9:p1', title: 'Reel', video: 'g/r.mp4',
+    shots: [{ at: 0, dur: 4, label: 'Intro' }] }));
+  const markers = [{ in: 9.62, note: 'falscher Gewinner' }, { in: 5.3, out: 3.1, note: 'Text zu klein' }, { note: 'no time' }, { in: 2, out: 2 }];
+  const r = await call('/api/answer', 'me@x', { request: 'reel', approve: false, markers, text: 'sonst gut' });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.sent, '[Builder] review reel: denied | 2.0 s (keine Notiz) | 3.1–5.3 s Text zu klein | 9.6 s falscher Gewinner | Notiz: sonst gut | Fix this and send a new review request (new id).');
+  const saved = JSON.parse(await fs.readFile(path.join(process.env.REQ_DIR, 'reel.answer.json'), 'utf8'));
+  assert.deepEqual(saved.markers, [{ in: 2, out: null, note: '' }, { in: 3.1, out: 5.3, note: 'Text zu klein' }, { in: 9.6, out: null, note: 'falscher Gewinner' }]);
 });

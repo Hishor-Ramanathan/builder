@@ -34,7 +34,7 @@ async function sendToPane(pane, text) {
   await herdr('agent', 'send-keys', pane, 'enter');
 }
 
-// --- requests (pick / review) written by agents, see AGENT-PROTOCOL.md
+// --- requests (pick / review / media) written by agents, see AGENT-PROTOCOL.md
 async function loadRequests() {
   await fs.mkdir(REQ_DIR, { recursive: true });
   const out = [];
@@ -50,6 +50,24 @@ async function loadRequests() {
   return out.sort((a, b) => (a.created || '').localeCompare(b.created || ''));
 }
 
+const sec = x => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? Math.round(x * 10) / 10 : null);
+const f1 = x => x.toFixed(1);
+// Time markers on a review video: [{in, out, note}] sorted by time; out is null for a single moment.
+export function reviewMarkers(body) {
+  return (Array.isArray(body.markers) ? body.markers : []).slice(0, 200).map(m => {
+    let a = sec(m?.in), b = sec(m?.out); if (a != null && b != null && a > b) [a, b] = [b, a];
+    return { in: a, out: b === a ? null : b, note: String(m?.note || '').trim().slice(0, 500) };
+  }).filter(m => m.in != null).sort((x, y) => x.in - y.in);
+}
+
+// Media picks from the phone, trimmed to the request's own items: [{label, in, out, note}] in his order.
+export function mediaPicks(req, body) {
+  const known = new Set((req.items || []).map(i => i.label)), seen = new Set();
+  return (Array.isArray(body.picks) ? body.picks : []).filter(p => known.has(p?.label) && !seen.has(p.label) && seen.add(p.label))
+    .map(p => { let a = sec(p.in), b = sec(p.out); if (a != null && b != null && a > b) [a, b] = [b, a];
+      return { label: p.label, in: a, out: b, note: String(p.note || '').trim().slice(0, 500) }; });
+}
+
 // Turns the owner's decision into one line the agent reads as its next prompt.
 export function formatAnswer(req, body) {
   if (req.kind === 'pick') {
@@ -61,9 +79,16 @@ export function formatAnswer(req, body) {
     return `[Builder] ${req.title}: ${parts.join('; ')}. ${kept ? 'Build what I kept, merging them if several, then send a review request.' : 'Nothing kept: make 3 new options using my notes.'}`;
   }
   if (req.kind === 'review') {
+    const notes = [...reviewMarkers(body).map(m => `${f1(m.in)}${m.out != null ? '–' + f1(m.out) : ''} s ${m.note || '(keine Notiz)'}`),
+      (body.text || '').trim() && `Notiz: ${body.text.trim()}`].filter(Boolean).map(x => ' | ' + x).join('');
     return body.approve
-      ? `[Builder] ${req.title}: APPROVED. ${req.approve ? `Go ahead: ${req.approve}.` : 'Merge into dev (not main) and clean up the worktree.'}`
-      : `[Builder] ${req.title}: DENIED. Change this: ${(body.text || '').trim()}. Then send a new review request.`;
+      ? `[Builder] review ${req.id}: APPROVED. ${req.approve ? `Go ahead: ${req.approve}.` : 'Merge into dev (not main) and clean up the worktree.'}${notes}`
+      : `[Builder] review ${req.id}: denied${notes} | Fix this and send a new review request (new id).`;
+  }
+  if (req.kind === 'media') {
+    const parts = mediaPicks(req, body).map((p, i) => `${i + 1}. ${p.label}${p.in != null || p.out != null ? ` ${f1(p.in ?? 0)}–${p.out != null ? f1(p.out) + ' s' : 'Ende'}` : ''}${p.note ? ` "${p.note}"` : ''}`);
+    const note = String(body.note || '').trim();
+    return `[Builder] media ${req.id}: ${[parts.join(' | ') || 'nichts gewählt', note && `Notiz: ${note}`].filter(Boolean).join(' | ')}`;
   }
   return `[Builder] ${req.title}: ${(body.text || '').trim()}`;
 }
@@ -173,6 +198,8 @@ export const server = http.createServer(async (req, res) => {
         if (!/^[\w.-]+$/.test(body.request)) return send(res, 400, { error: 'bad request id' });
         const r = (await loadRequests()).find(x => x.id === body.request);
         if (!r || r.answer) return send(res, 409, { error: 'Already answered.' });
+        if (r.kind === 'media') body.picks = mediaPicks(r, body);
+        if (r.kind === 'review') body.markers = reviewMarkers(body);
         pane = r.pane; text = formatAnswer(r, body); reqFile = path.join(REQ_DIR, r.id + '.answer.json');
       } else {
         text = `${String(body.text || '').trim()}`;
