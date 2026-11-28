@@ -107,3 +107,13 @@ test('review: markers come back sorted, as text and JSON', async () => {
   const saved = JSON.parse(await fs.readFile(path.join(process.env.REQ_DIR, 'reel.answer.json'), 'utf8'));
   assert.deepEqual(saved.markers, [{ in: 2, out: null, note: '' }, { in: 3.1, out: 5.3, note: 'Text zu klein' }, { in: 9.6, out: null, note: 'falscher Gewinner' }]);
 });
+
+test('dismiss: request leaves the inbox, idle agent is told, only once', async () => {
+  await fs.writeFile(path.join(process.env.REQ_DIR, 'old.json'), JSON.stringify({ kind: 'review', pane: 'w9:p1', title: 'Old' }));
+  assert.equal((await call('/api/dismiss', 'friend@x', { request: 'old' })).status, 403);
+  assert.equal((await call('/api/dismiss', 'me@x', { request: 'old' })).status, 200);
+  assert.equal((await call('/api/dismiss', 'me@x', { request: 'old' })).status, 409);
+  const { json } = await call('/api/inbox', 'me@x');
+  assert.ok(!json.items.some(i => i.id === 'req:old'));
+  assert.match(await fs.readFile(log, 'utf8'), /pane send-text w9:p1 \[Builder\] review old: dismissed/);
+});

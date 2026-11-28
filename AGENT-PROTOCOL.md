@@ -10,6 +10,7 @@ For **design choices** and **reviews**, write a request file so he gets swipe ca
    `<id>`: letters, digits, `-`, `_`, `.` only. File paths in the JSON are relative to `requests/`.
 3. End your turn. His decision arrives as your next prompt, starting with `[Builder]`.
    It is also saved in `requests/<id>.answer.json`.
+   If he deletes the request instead, you get `[Builder] <kind> <id>: dismissed ...`: drop that task, don't act on it.
 
 ## Pick (three options)
 

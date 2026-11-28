@@ -87,6 +87,10 @@ function list() {
   ${rest.length ? `<details><summary class="label">All sessions (${rest.length})</summary><div class="list">${rest.map(card).join('')}</div></details>` : ''}
   ${data.recent.length ? `<p class="label">Recently answered</p><div class="list">${data.recent.map(r => `<div class="item" style="cursor:default"><b>${esc(r.title)}</b><span class="label">${esc(r.answer.text)}</span></div>`).join('')}</div>` : ''}`;
 }
+async function dismiss(it) {
+  if (!confirm(`Delete "${it.title}"? It leaves your inbox and the agent is told it's not needed.`)) return;
+  try { await post('/api/dismiss', { request: it.id.slice(4) }); toast('Deleted'); view = null; await load(); } catch (e) { toast(e.message); }
+}
 function open_(i) {
   const it = data.items[i]; view = it;
   if (it.type === 'pick') return pick(it, 0, it.options.map(() => null), it.options.map(() => ''));
@@ -94,7 +98,7 @@ function open_(i) {
   if (it.type === 'media') return media(it);
   agent(it);
 }
-const head = (it, right = '') => `<header><button class="back" onclick="list()">← Inbox</button><span>${right}</span></header><h2>${esc(it.title)}</h2>`;
+const head = (it, right = '') => `<header><button class="back" onclick="list()">← Inbox</button><span>${right}${owner() && it.id?.startsWith('req:') ? ` <button class="btn no sm" style="margin-left:8px" onclick="dismiss(view)">Delete</button>` : ''}</span></header><h2>${esc(it.title)}</h2>`;
 const commentBox = it => `<div class="comments"><span class="label">Comments</span>
   ${it.comments.map(c => `<div class="c"><b>${esc(c.by)}</b> ${esc(c.text)}</div>`).join('') || '<span class="c" style="color:var(--text-muted)">None yet.</span>'}
   <textarea id="cm" placeholder="Add a comment for everyone" aria-label="Comment"></textarea>

@@ -192,6 +192,16 @@ export const server = http.createServer(async (req, res) => {
     }
     if (me.role !== 'owner') return send(res, 403, { error: 'Only the owner can answer agents.' });
 
+    // Owner drops a request that no longer matters: it leaves the inbox; the agent hears about it if it's idle.
+    if (url.pathname === '/api/dismiss') {
+      if (!/^[\w.-]+$/.test(body.request || '')) return send(res, 400, { error: 'bad request id' });
+      const r = (await loadRequests()).find(x => x.id === body.request);
+      if (!r || r.answer) return send(res, 409, { error: 'Already answered.' });
+      const text = `[Builder] ${r.kind} ${r.id}: dismissed by Hishor, not needed. Don't act on it.`;
+      if (PANE_RE.test(r.pane || '') && !checkPane(await listAgents().catch(() => []), r.pane)) await sendToPane(r.pane, text).catch(() => {});
+      await fs.writeFile(path.join(REQ_DIR, r.id + '.answer.json'), JSON.stringify({ dismissed: true, text: 'Dismissed', by: me.login, at: new Date().toISOString() }, null, 1));
+      return send(res, 200, { ok: true });
+    }
     if (url.pathname === '/api/answer') {
       let pane = body.pane, text, reqFile;
       if (body.request) {
